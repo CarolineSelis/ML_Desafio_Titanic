@@ -4,7 +4,7 @@
 knitr::opts_chunk$set(echo = TRUE,message=FALSE,warning=FALSE)
 ```
 
-# Introduction 
+# Introdução
 Estudo de caso com a base famosinha Titanic: Machine Learning from Disaster
 
 
