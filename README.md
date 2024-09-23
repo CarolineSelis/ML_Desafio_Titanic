@@ -26,8 +26,8 @@ library(forcats)
 library(rpart.plot) # Random forest
 library(Hmisc)
 library(VIM)
-train=read.csv("C:/Users/cselis/OneDrive - SEBRAE/Área de Trabalho/Pessoal/Scripts/train.csv",header=TRUE,stringsAsFactors = FALSE)
-test=read.csv("C:/Users/cselis/OneDrive - SEBRAE/Área de Trabalho/Pessoal/Scripts/test.csv",header=TRUE,stringsAsFactors = FALSE)
+train=read.csv("/train.csv",header=TRUE,stringsAsFactors = FALSE)
+test=read.csv("/test.csv",header=TRUE,stringsAsFactors = FALSE)
 ```
 
 # Primeiras impressões
