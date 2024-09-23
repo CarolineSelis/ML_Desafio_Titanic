@@ -1,14 +1,4 @@
----
-title: "ML Desastre do Titanic"
-author: "Carol"
-date: "19/02/2023"
-output:
-  pdf_document:
-    toc: yes
-  html_document:
-    code_folding: hide
-    toc: yes
----
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,message=FALSE,warning=FALSE)
