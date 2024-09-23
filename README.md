@@ -1,1 +1,378 @@
-# ML_Desafio_Titanic
+---
+title: "ML Desastre do Titanic"
+author: "Carol"
+date: "19/02/2023"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    code_folding: hide
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message=FALSE,warning=FALSE)
+```
+
+# Introduction 
+Estudo de caso com a base famosinha Titanic: Machine Learning from Disaster
+
+
+Análise descritiva, imputação de valores, modelo preditivo
+
+# Pacotes e base
+
+```{r}
+library(dplyr) # Data Munging
+library(ggplot2) # Data Visualization
+library(ggthemes) #Themes
+library(corrplot) #Correlation
+library(rpart) #Data modelling
+library(randomForest) #Data modelling
+library(pscl)
+#library(Deducer) # Modelling
+library(Amelia) #Missing values
+library(forcats)
+library(rpart.plot) # Random forest
+library(Hmisc)
+library(VIM)
+train=read.csv("C:/Users/cselis/OneDrive - SEBRAE/Área de Trabalho/Pessoal/Scripts/train.csv",header=TRUE,stringsAsFactors = FALSE)
+test=read.csv("C:/Users/cselis/OneDrive - SEBRAE/Área de Trabalho/Pessoal/Scripts/test.csv",header=TRUE,stringsAsFactors = FALSE)
+```
+
+# Primeiras impressões
+
+##Dimensões
+```{r}
+dim(train)
+dim(test)
+```
+
+##Resumo (Summary)
+```{r}
+summary(train) #Age:177 NA
+
+summary(test) #Age:86NA
+```
+
+Analisando os dados faltantes, observamos que a idade é a característica com mais registros incompletos no conjunto de treinamento. No conjunto de teste, além da idade, há um registro faltante na tarifa. Para aprofundar nossa análise, vamos combinar os dois conjuntos e realizar uma EDA.
+
+```{r}
+titanic=full_join(train,test)
+summary(titanic)
+```
+
+
+# Valores faltantes
+
+Vamos primeiro focar na imputação dos valores faltantes e fazer uma exploração visual depois disso.
+
+##Age
+
+```{r}
+prop.table(table(is.na(titanic$Age)))
+```
+
+Como 20% dos dados da idade estão ausentes, utilizaremos a técnica de partição recursiva (rpart) para prever esses valores.
+
+```{r}
+age=rpart(Age ~Pclass+Sex+SibSp+Parch+Fare+Embarked,data=titanic[!(is.na(titanic$Age)),],method="anova")
+titanic$Age[is.na(titanic$Age)]=predict(age,titanic[is.na(titanic$Age),])
+```
+
+Verificar
+
+```{r}
+prop.table(table(is.na(titanic$Age)))
+```
+
+A coluna foi corrigida com sucesso :)
+
+```{r}
+ggplot(titanic,aes(Age,fill="green"))+geom_density(alpha=0.4)+labs(x="Idade",y="Contagem",title="Distribuição Idade depois da correção")+theme(legend.position="none")
+```
+
+
+##Taxa de embarque:
+
+```{r}
+sum(is.na(titanic$Fare))
+```
+
+Uma informação faltante, qual?
+
+```{r}
+which(is.na(titanic$Fare))
+```
+
+```{r}
+titanic[1044,]
+```
+
+
+O passageiro é do sexo masculino, pertence à 3ª classe e embarcou no S. 
+
+Utilizaremos a função rpart novamente para imputação.
+
+```{r}
+fare=rpart(Fare ~Parch+SibSp+Sex+Pclass,data=titanic[!(is.na(titanic$Fare)),],method="anova")
+titanic$Fare[(is.na(titanic$Fare))]=predict(fare,data=titanic[is.na(titanic$Fare),])
+rpart.plot(fare,shadow.col="pink",box.col="gray",split.col="magenta",main="Árvore de Decisão para imputar")
+```
+
+De acordo com a árvore de decisão, os passageiros da 2ª ou 3ª classe pagaram menos do que os da 1ª classe, enquanto aqueles que viajavam com pais ou filhos pagaram mais do que os que estavam sozinhos.
+```{r}
+prop.table(table(is.na(titanic$Fare)))
+```
+
+Gráfico de Densidade
+
+```{r}
+ggplot(titanic,aes(Fare,fill="green"))+geom_density(alpha=0.4)+labs(x="Taxa",y="Densidade Taxa de Embarque",title="Distribuição Taxa de Embarque depois da correção")+theme(legend.position="none")
+```
+
+Dados estão fortemente deslocados para a direita
+
+
+# Visualizações
+
+Agora, vamos nos concentrar em nome, sexo, SibSp, Parch e Pclass para realizar algumas tarefas de organização e visualização de dados. 
+Começaremos com o nome.
+
+```{r}
+str(titanic$Name)
+```
+
+Tirar título dos nomes
+
+```{r}
+titanic$Title=gsub('(.*, )|(\\..*)','',titanic$Name)
+head(titanic$Title)
+table(titanic$Title,titanic$Sex)
+```
+
+Convertemos a variável em fator e, usando a função da biblioteca forcats, colapsamos alguns desses níveis.
+
+```{r}
+titanic <- titanic %>% mutate(Title = factor(Title)) %>% mutate(Title = fct_collapse(Title, "Miss" = c("Mlle", "Ms"), "Mrs" = "Mme", "Ranked" = c( "Major", "Dr", "Capt", "Col", "Rev"),"Royalty" = c("Lady", "Dona", "the Countess", "Don", "Sir", "Jonkheer")))
+str(titanic$Title)
+```
+
+Criaremos uma nova coluna chamada Família para identificar quem viajou sozinho e quem viajou com a família. Isso será feito usando uma declaração ifelse simples. A condição será verdadeira se a pessoa tiver viajado com pais/filhos ou irmãos/cônjuge, e falsa caso contrário.
+
+```{r}
+titanic$Families= factor(ifelse(titanic$SibSp + titanic$Parch + 1> 1,"Yes","No"))
+prop.table(table(titanic$Families))
+```
+
+Quase 40% das pessoas viajaram com famílias. 
+
+Vamos agora examinar a classe do passageiro."
+
+```{r}
+prop.table(table(titanic$Pclass))
+```
+
+54% deles viajaram na terceira classe, enquanto 25% viajaram na primeira classe
+
+##Sobreviventes
+
+```{r}
+titanic=titanic %>% mutate(Survived=factor(Survived)) %>% mutate(Survived=fct_recode(Survived,"No"="0","Yes"="1"))
+# train=titanic[1:891,]
+# test=titanic[1:1309,]
+prop.table(table(train$Survived))
+```
+
+Nos dados de treino, apenas 38% sobreviveram, enquanto 61% pereceram. 
+
+
+### Por gênero
+
+```{r,fig.height=6}
+ggplot(titanic[1:891,],aes(Sex,fill=Survived))+geom_bar(position="fill")+theme_fivethirtyeight()+theme(legend.position="bottom",plot.title=element_text(size=15,hjust=0.5))+labs(x="Gênero",y="Taxa de sobrevivência",title="Sobreviventes por Gênero")
+```
+
+A bordo do Titanic, as chances de sobrevivência eram muito menores para homens do que para mulheres. 
+
+### Por classe
+
+```{r}
+str(titanic$Pclass)
+ggplot(titanic[1:891,],aes(Pclass,fill=Survived))+geom_bar(position="fill")+facet_wrap(~Sex)+theme_fivethirtyeight()+theme(legend.position="bottom",plot.title=element_text(size=15,hjust=0.5))+labs(x="Passageiro por Classe",y="Taxa de sobrevivência",title="Sobreviventes por Classer")
+```
+
+Analisando os dois gráficos, podemos entender que, independentemente do gênero, há uma maior chance de sobrevivência se você fosse da 1ª classe. No entanto, se você for uma passageira feminina da 1ª classe, as chances de sobrevivência aumentam significativamente. Os azarados são os homens da 2ª e 3ª classe.
+
+##Análise por classe 
+
+```{r}
+ggplot(titanic[1:891,],aes(Title,fill=Survived))+geom_bar(position="fill")+facet_wrap(Pclass~Sex)+theme_few()+theme(legend.position="bottom",plot.title=element_text(size=15,hjust=0.5),plot.subtitle = element_text(size=10),axis.text.x=element_text(angle=90))+labs(x="Title",y="Taxa de sobrevivência",title="Sobreviventes por gênero e Título",subtitle="Visualização por Classe")
+```
+
+* From the plot,we understand that the survival rate is highly influenced by Passenger class and gender.
+* As seen earlier,the survival rate is usually higher for female which is reinstated here.
+* 1st class and 2nd class,female passengers had almost 100 % chance of survival compared to their male counterpart.
+* Chanses of survival is 50% for female travelling in 3rd class.
+* For male,the only way a male could have survived is that he should have been a boy (as indicated by master).For 1st and 2nd class,the survival is almost 100 % whereas it is 50 % in 3rd class.
+* The probability of survival is worse for an adult male in 2nd and 3rd class whereas in 1st class it is around 50 %.
+
+
+###By Embarkment:
+
+```{r}
+ggplot(titanic[1:891,],aes(Embarked,fill=Survived))+geom_bar(position="fill")+theme_few()+theme(legend.position="bottom",plot.title=element_text(size=15,hjust=0.5))+labs(x="Title",y="Survival Rate",title="Survival by Embarkment")
+```
+
+There seems to be one row with no value for embarkmemt.let us add this to the majority class.
+
+```{r}
+titanic =titanic %>% mutate(Embarked=ifelse(Embarked=="",names(which.max(table(titanic$Embarked))),Embarked))
+ggplot(titanic[1:891,],aes(Embarked,fill=Survived))+geom_bar(position="fill")+theme_few()+theme(legend.position="bottom",plot.title=element_text(size=15,hjust=0.5))+labs(x="Title",y="Survival Rate",title="Survival by Embarkment")+facet_wrap(Pclass~Sex,scales="free")
+```
+
+Analisando o gráfico, entendemos que a taxa de sobrevivência é fortemente influenciada pela classe do passageiro e pelo gênero. Como visto anteriormente, a taxa de sobrevivência é geralmente maior para mulheres, o que é reafirmado aqui.
+
+Passageiras da 1ª e 2ª classe tinham quase 100% de chance de sobrevivência em comparação com seus equivalentes masculinos. As chances de sobrevivência são de 50% para mulheres viajando na 3ª classe.
+
+Para homens, a única maneira de ter sobrevivido era ser um menino (como indicado por 'master'). Na 1ª e 2ª classe, a sobrevivência é quase 100%, enquanto na 3ª classe é de 50%.
+
+A probabilidade de sobrevivência é pior para um homem adulto na 2ª e 3ª classe, enquanto na 1ª classe é de cerca de 50%.
+
+###Por Famílias:
+
+
+```{r}
+ggplot(titanic[1:891,],aes(Families,fill=Survived))+geom_bar(position="fill")+theme_few()+theme(legend.position="bottom",plot.title=element_text(size=15,hjust=0.5))+labs(x="Com família ou não",y="Taxa de sobrevivência",title="Chance de sobrevivencia se tiver com família ou não")
+```
+
+As chances de sobrevivência parecem ser um pouco maiores para aqueles que viajam com suas famílias. 
+
+Vamos criar um boxplot para entender a idade mediana de sobrevivência em relação ao gênero."
+
+```{r}
+ggplot(titanic[1:891,],aes(Survived,Age,fill=Sex))+geom_boxplot()+theme(legend.position="bottom",plot.title=element_text(size=15,hjust=0.5))+labs(x="Sobrevivente",y="idade",title="Idade média sobreviventes")
+```
+A idade mediana tem sido em torno de 30 para sobreviventes de ambos os sexos, enquanto a idade mediana das mulheres que não sobreviveram é de cerca de 25 e para homens é de cerca de 28
+
+
+### Por cabine
+
+```{r}
+str(titanic$Cabin)
+```
+
+Tentamos dividir o primeiro caractere da variável 'cabine' e visualizar a taxa de sobrevivência.
+
+```{r}
+titanic$Deck=factor(sapply(titanic$Cabin, function(x) strsplit(x, NULL)[[1]][1]))
+str(titanic$Deck)
+table(is.na(titanic$Deck)) #297 missing values
+round(prop.table(table(titanic$Deck,titanic$Survived))*100,2)
+```
+Os decks C e B apresentam taxas de sobrevivência mais altas, enquanto os decks F, G e T têm taxas mais baixas.
+
+
+```{r}
+set.seed(100)
+titanic$Deck=with(titanic,impute(Deck,'random'))
+ggplot(titanic[1:891,],aes(Deck,fill=Survived))+geom_bar(position="fill")+theme(legend.position="bottom",plot.title=element_text(size=15,hjust=0.5))+labs(x="Deck",y="Taxa de sobrevivência",title="Sobreviventes por Deck")
+```
+
+###Tamanho da Família:
+
+Chances de sobrevivência são maiores se você estiver com a família?
+
+```{r}
+titanic=titanic %>% mutate(FamilySize=SibSp+Parch+1) %>% mutate(Type=ifelse(FamilySize==1,"Single",ifelse(FamilySize>=3,"Large","2 People")))
+ggplot(titanic[1:891,],aes(Type,fill=Survived))+geom_bar(position="fill")+theme(legend.position="bottom",plot.title=element_text(size=15,hjust=0.5))+labs(x="Tamanho familia",y="taxa de sobrevivência",title="Sobreviventes tamanho da família")
+```
+
+
+A taxa de sobrevivência é alta para famílias de 2 pessoas, enquanto é baixa para solteiros. 
+
+
+Vamos primeiro visualizar se os valores faltantes relevantes foram imputados corretamente.
+
+### Modelo random forest 
+
+```{r}
+aggr(titanic,prop=FALSE,combined=TRUE,sortVars=TRUE,sortCombs=TRUE,numbers=TRUE)
+```
+
+A partir dos dados, entendemos que não há valores faltantes nos dados de treinamento.
+Os dados de teste têm 418 valores faltantes em 'Sobrevivente', que precisam ser previstos. 
+Vamos dividir os conjuntos de dados de treinamento e teste. 
+Convertemos as variáveis de caracteres em fatores.
+
+```{r}
+titanic = titanic %>% mutate(Type=factor(Type)) %>% mutate(Embarked=factor(Embarked)) %>% mutate(Sex=factor(Sex))
+```
+
+```{r}
+train=titanic[1:891,]
+test=titanic[892:1309,]
+names(train)
+str(train)
+```
+
+```{r}
+rfmodel=randomForest(factor(Survived) ~ Pclass+Sex+Age+Fare+Embarked+Title+Deck+FamilySize+Type+SibSp+Parch,data=train,importance=TRUE)
+print(rfmodel)
+```
+
+A matriz de confusão mostra que o erro de classificação é de 30%.
+
+```{r}
+plot(rfmodel, main="")
+legend("topright", c("OOB", "0", "1"), text.col=1:6, lty=1:3, col=1:3)
+title(main="Error Rates Random Forest")
+```
+
+O gráfico mostra que em algum momento entre 0 e 100 árvores, o ótimo é alcançado e depois disso o erro OOB se torna plano. Vamos verificar a importância das variáveis.
+
+```{r}
+varImpPlot(rfmodel)
+```
+
+A diminuição média da precisão é de 100% para a classe p, o que significa que se fizermos uma permutação aleatória na variável, a diminuição será de 100%.
+
+Vamos ajustar nossa floresta aleatória.
+
+```{r}
+variable=c("Pclass","Sex","Age","Fare","Embarked","Title","Deck","FamilySize","Type","SibSp","Parch")
+tunedrfmodel=tuneRF(x=train[,variable],y=as.factor(train$Survived),mtryStart = 3,ntreeTry = 100,stepFactor = 2,improve=0.001,trace=FALSE,plot=FALSE,doBest = TRUE,nodesize=200,importance=TRUE)
+varImpPlot(tunedrfmodel)
+```
+
+A partir da análise de ajuste, podemos observar que os títulos e o sexo são as variáveis mais importantes para nossa previsão.
+
+Vamos fazer a previsão usando os dados de treinamento.
+
+```{r}
+trainpredict=table(predict(tunedrfmodel),train$Survived)
+caret::confusionMatrix(trainpredict)
+```
+
+A precisão é de 80%. 
+
+Vamos usar os dados de teste.
+
+```{r}
+test$Survived=NULL
+titanicpred=predict(tunedrfmodel,test,OOB=TRUE,type="response")
+titanicpred=ifelse(titanicpred=="No",0,1)
+solution=data.frame(PassengerID=test$PassengerId,Survived=titanicpred)
+write.csv(solution,file="submission.csv",row.names=F)
+```
+
+
+##Conclusão:
+
+Este conjunto de dados, um dos mais populares na comunidade Kaggle, proporcionou uma excelente oportunidade para explorar diversas técnicas de análise de dados. A partir dele, pudemos aprofundar nossos conhecimentos em visualização de dados, tratamento de valores ausentes, modelagem utilizando diferentes pacotes e avaliação da precisão dos modelos.
+
+Ao analisar os resultados, identificamos que as variáveis "título" e "sexo" exercem um papel fundamental nas nossas previsões. Essa descoberta demonstra a importância de uma análise cuidadosa dos dados para identificar os fatores que mais influenciam o resultado desejado.
+
+Embora tenhamos obtido resultados promissores, há ainda espaço para aprimorar o modelo. A implementação de regressão logística, por exemplo, pode trazer novas insights e melhorar a precisão das nossas previsões. Essa será uma das próximas etapas deste estudo.
+
+Em resumo, este trabalho nos permitiu aplicar conceitos de aprendizado de máquina em um cenário real e compreender a importância da interpretação dos resultados para a tomada de decisões.
